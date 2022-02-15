@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.IO;
+using System.IO.Compression;
 using System.Linq;
 using System.Text.RegularExpressions;
 using System.Threading;
@@ -35,7 +36,7 @@ namespace EasyBackUp
             }
         }
 
-        private void Process(TargetDefinition definition)
+        private static void Process(TargetDefinition definition)
         {
             //for each file:
             //  find latest backup
@@ -55,31 +56,22 @@ namespace EasyBackUp
 
             foreach (var file in files)
             {
-                //MyFile.docx_bak
-                var backupBaseName = $"{file.Name}_bak";
+                var existingBackups = GetExistingBackups(backupDirectory, file);
 
-                var existingBackups = GetExistingBackups(backupDirectory, backupBaseName);
+                var latestBackup = existingBackups.OrderByDescending(t => t.backupNumber).FirstOrDefault();
 
-                var nextNumber = existingBackups.Any() ? existingBackups.Max(t => t.backupNumber) + 1 : 1;
-
-                //20220215_59_MyFile.docx_bak.zip
-                var newBackupName = $"{DateTime.Today:yyyyMMdd}_{nextNumber}_{backupBaseName}.zip";
-
-                //todo zip the target file
-                File.Create(Path.Combine(backupDirectory.FullName, newBackupName)).Dispose();
-
-                if (existingBackups.Count + 1 > definition.MaxBackups)
+                if (latestBackup.file == null || file.LastWriteTimeUtc > latestBackup.file.LastWriteTimeUtc)
                 {
-                    foreach (var item in existingBackups.OrderByDescending(kvp => kvp.backupNumber).Skip(definition.MaxBackups - 1))
-                    {
-                        item.file.Delete();
-                    }
+                    Archive(file, backupDirectory, latestBackup.backupNumber + 1);
                 }
+
+                Prune(existingBackups, definition.MaxBackups);
             }
         }
 
-        private static ICollection<(int backupNumber, FileInfo file)> GetExistingBackups(DirectoryInfo backupDirectory, string backupBaseName)
+        private static ICollection<(int backupNumber, FileInfo file)> GetExistingBackups(DirectoryInfo backupDirectory, FileInfo file)
         {
+            var backupBaseName = GetBackupBaseName(file);
             var existingBackups = new List<(int backupNumber, FileInfo file)>();
 
             //\d+_(\d+)_MyFile\.docx_bak\.zip
@@ -97,33 +89,37 @@ namespace EasyBackUp
 
             return existingBackups;
         }
-    }
 
-    public class TargetDefinition
-    {
-        /// <summary>
-        /// Folder to backup files from.
-        /// </summary>
-        public string TargetFolder { get; set; }
+        private static void Archive(FileInfo file, DirectoryInfo backupDirectory, int nextNumber)
+        {
+            var newBackupName = GetNextBackupName(file, nextNumber);
 
-        /// <summary>
-        /// Filter to select target files in the <see cref="TargetFolder"/>.
-        /// </summary>
-        public string Glob { get; set; }
+            using var stream = new FileStream(Path.Combine(backupDirectory.FullName, newBackupName), FileMode.Create);
+            using var archive = new ZipArchive(stream, ZipArchiveMode.Create);
+            archive.CreateEntryFromFile(file.FullName, file.Name, CompressionLevel.Fastest);
+        }
 
-        /// <summary>
-        /// Folder to put backup copies into.
-        /// </summary>
-        public string BackupFolder{ get; set; }
+        private static void Prune(ICollection<(int backupNumber, FileInfo file)> existingBackups, int maxBackups)
+        {
+            if (existingBackups.Count + 1 > maxBackups)
+            {
+                foreach (var item in existingBackups.OrderByDescending(kvp => kvp.backupNumber).Skip(maxBackups - 1))
+                {
+                    item.file.Delete();
+                }
+            }
+        }
 
-        /// <summary>
-        /// Interval between subsequent backup passes. A modified file will not be backed up if there is already a backup of the same file created less than <see cref="Interval" ago/>
-        /// </summary>
-        public TimeSpan Interval{ get; set; }
+        private static string GetBackupBaseName(FileInfo file)
+        {
+            //MyFile.docx_bak
+            return $"{file.Name}_bak";
+        }
 
-        /// <summary>
-        /// Maximum number of backups of each file to be kept.
-        /// </summary>
-        public int MaxBackups { get; set; }
+        private static string GetNextBackupName(FileInfo file, int nextNumber)
+        {
+            //20220215_59_MyFile.docx_bak.zip
+            return $"{DateTime.Today:yyyyMMdd}_{nextNumber}_{GetBackupBaseName(file)}.zip";
+        }
     }
 }
