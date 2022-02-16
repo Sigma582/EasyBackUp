@@ -19,54 +19,85 @@ namespace EasyBackUp
                 Glob = "save5",
                 BackupFolder = @"D:\Users\me\Documents\My Games\XCOM - Enemy Within\XComGame\SaveData\Backup\",
                 Interval = TimeSpan.FromMinutes(60),
-                MaxBackups = 10 }
+                MaxBackups = 10 },
+            new TargetDefinition {
+                TargetFolder = @"D:\Users\me\Documents\My Games\XCOM - Enemy Within\XComGame\SaveData\",
+                Glob = "save24",
+                BackupFolder = @"D:\Users\me\Documents\My Games\XCOM - Enemy Within\XComGame\SaveData\Backup\",
+                Interval = TimeSpan.FromMinutes(60),
+                MaxBackups = 20 },
         };
 
-        public async Task ExecuteAsync(CancellationToken? cancellationToken = null)
-        {
-            while (cancellationToken?.IsCancellationRequested != true)
-            {
-                var logPath = @"C:\Users\me\source\repos\EasyBackUp\EasyBackUp\bin\Debug\test.log";
-                File.AppendAllText(logPath, $"{DateTime.Now:s} Running\r\n");
+        private int CheckIntervalSeconds => 5;
 
-                foreach (var definition in _definitions)
+        public async Task ExecuteAsync(CancellationToken cxl)
+        {
+            await Task.WhenAll(_definitions.Select(definition => Task.Run(() => ProcessUntilCancelled(definition, cxl))));
+            Log($"cancelled - ExecuteAsync");
+        }
+
+        private async Task ProcessUntilCancelled(TargetDefinition definition, CancellationToken cxl)
+        {
+            try
+            {
+                while (true)
                 {
-                    await Task.Run(() => Process(definition));
+                    Process(definition, cxl);
+                    await Task.Delay(CheckIntervalSeconds * 1000, cxl);
                 }
+            }
+            catch(Exception ex)
+            {
+                Log($"Error - {Path.Combine(definition.TargetFolder, definition.Glob)}\r\n{ex.ToString()}");
+            }
+            finally
+            {
+                Log($"cancelled - {Path.Combine(definition.TargetFolder, definition.Glob)}");
             }
         }
 
-        private static void Process(TargetDefinition definition)
+        private static void Process(TargetDefinition definition, CancellationToken cxl)
         {
-            //for each file:
-            //  find latest backup
-            //  check if the file has changed and grace period has passed
-            //    if yes, make a new backup
-            //  check if there are more bacups than allowed
-            //    if yes, delete oldest backups until there are as many as allowed
+            Log($"processing {Path.Combine(definition.TargetFolder, definition.Glob)}");
 
             var targetDirectory = new DirectoryInfo(definition.TargetFolder);
-            var files = targetDirectory.GetFiles(definition.Glob);
-            var backupDirectory = new DirectoryInfo(definition.BackupFolder);
+            if (!targetDirectory.Exists)
+            {
+                return;
+            }
 
+            var backupDirectory = new DirectoryInfo(definition.BackupFolder);
             if (!backupDirectory.Exists)
             {
                 backupDirectory.Create();
             }
 
+            var files = targetDirectory.GetFiles(definition.Glob);
+
             foreach (var file in files)
             {
+                //allow for early exit - don't start a new file if cancellation has been requested
+                cxl.ThrowIfCancellationRequested();
+                
                 var existingBackups = GetExistingBackups(backupDirectory, file);
-
                 var latestBackup = existingBackups.OrderByDescending(t => t.backupNumber).FirstOrDefault();
 
-                if (latestBackup.file == null || file.LastWriteTimeUtc > latestBackup.file.LastWriteTimeUtc)
+                //point of no return for current file
+                cxl.ThrowIfCancellationRequested();
+
+                if (latestBackup.file == null || file.LastWriteTimeUtc - latestBackup.file.LastWriteTimeUtc >= definition.Interval)
                 {
                     Archive(file, backupDirectory, latestBackup.backupNumber + 1);
                 }
 
                 Prune(existingBackups, definition.MaxBackups);
             }
+        }
+
+        private static void Log(string entry)
+        {
+            var logPath = @"C:\Users\me\source\repos\EasyBackUp\EasyBackUp\bin\Debug\test.log";
+            File.AppendAllText(logPath, $"{DateTime.Now:s} {entry}\r\n");
         }
 
         private static ICollection<(int backupNumber, FileInfo file)> GetExistingBackups(DirectoryInfo backupDirectory, FileInfo file)
