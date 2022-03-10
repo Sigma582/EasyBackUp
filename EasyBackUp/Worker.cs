@@ -1,4 +1,5 @@
-﻿using System;
+﻿using Microsoft.Extensions.Logging;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
@@ -28,12 +29,19 @@ namespace EasyBackUp
                 MaxBackups = 20 },
         };
 
+        public Worker(ILogger logger)
+        {
+            Logger = logger;
+        }
+
         private int CheckIntervalSeconds => 5;
+
+        public ILogger Logger { get; }
 
         public async Task ExecuteAsync(CancellationToken cxl)
         {
             await Task.WhenAll(_definitions.Select(definition => Task.Run(() => ProcessUntilCancelled(definition, cxl))));
-            Log($"cancelled - ExecuteAsync");
+            Logger.LogInformation($"Cancelled - ExecuteAsync");
         }
 
         private async Task ProcessUntilCancelled(TargetDefinition definition, CancellationToken cxl)
@@ -46,19 +54,19 @@ namespace EasyBackUp
                     await Task.Delay(CheckIntervalSeconds * 1000, cxl);
                 }
             }
-            catch(Exception ex)
+            catch(TaskCanceledException ex)
             {
-                Log($"Error - {Path.Combine(definition.TargetFolder, definition.Glob)}\r\n{ex.ToString()}");
+                Logger.LogInformation("Cancelled - {Path}", Path.Combine(definition.TargetFolder, definition.Glob));
             }
-            finally
+            catch (Exception ex)
             {
-                Log($"cancelled - {Path.Combine(definition.TargetFolder, definition.Glob)}");
+                Logger.LogError(ex, "Error - {Path}", Path.Combine(definition.TargetFolder, definition.Glob));
             }
         }
 
-        private static void Process(TargetDefinition definition, CancellationToken cxl)
+        private void Process(TargetDefinition definition, CancellationToken cxl)
         {
-            Log($"processing {Path.Combine(definition.TargetFolder, definition.Glob)}");
+            Logger.LogInformation("processing {Path}", Path.Combine(definition.TargetFolder, definition.Glob));
 
             var targetDirectory = new DirectoryInfo(definition.TargetFolder);
             if (!targetDirectory.Exists)
@@ -92,12 +100,6 @@ namespace EasyBackUp
 
                 Prune(existingBackups, definition.MaxBackups);
             }
-        }
-
-        private static void Log(string entry)
-        {
-            var logPath = @"C:\Users\me\source\repos\EasyBackUp\EasyBackUp\bin\Debug\test.log";
-            File.AppendAllText(logPath, $"{DateTime.Now:s} {entry}\r\n");
         }
 
         private static ICollection<(int backupNumber, FileInfo file)> GetExistingBackups(DirectoryInfo backupDirectory, FileInfo file)
