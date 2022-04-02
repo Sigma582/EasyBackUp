@@ -24,7 +24,7 @@ namespace EasyBackUp
                         )
                 .UseWindowsService(options =>
                 {
-                    options.ServiceName = "test";
+                    options.ServiceName = "EasyBackUp";
                 }
                 )
                 .ConfigureServices((context, services) =>
