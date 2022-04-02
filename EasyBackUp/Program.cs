@@ -12,14 +12,18 @@ namespace EasyBackUp
     {
         public static async Task Main(string[] args)
         {
+            const string outputTemplate = "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} [{Level:u}] <THREAD: {ThreadId}> {Message:lj} {NewLine}{Exception}{NewLine}";
+
             var host = Host.CreateDefaultBuilder(new string[] { })
                 .UseSerilog((hostingContext, loggerConfiguration) => 
                     loggerConfiguration
                         //.ReadFrom.Configuration(hostingContext.Configuration)
+                        .MinimumLevel.Information()
                         .Enrich.FromLogContext()
-                        .WriteTo.Console()
+                        .Enrich.WithThreadId()
+                        .WriteTo.Console(outputTemplate: outputTemplate)
                         .WriteTo.File("log\\.log"
-                            , outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} [{Level:u}] {Message:lj}{NewLine}{Exception}{NewLine}"
+                            , outputTemplate: outputTemplate
                             , rollingInterval: RollingInterval.Day)
                         )
                 .UseWindowsService(options =>

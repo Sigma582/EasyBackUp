@@ -53,7 +53,7 @@ namespace EasyBackUp
 
         private void Process(TargetDefinition definition, CancellationToken cxl)
         {
-            Logger.LogInformation("processing {Path}", Path.Combine(definition.TargetFolder, definition.Glob));
+            Logger.LogDebug("Processing '{Path}'", Path.Combine(definition.TargetFolder, definition.Glob));
 
             var targetDirectory = new DirectoryInfo(definition.TargetFolder);
             if (!targetDirectory.Exists)
@@ -65,17 +65,31 @@ namespace EasyBackUp
             if (!backupDirectory.Exists)
             {
                 backupDirectory.Create();
+                Logger.LogDebug("Created backup directory '{BackupDirectory}'", backupDirectory.FullName);
             }
 
             var files = targetDirectory.GetFiles(definition.Glob);
+            Logger.LogDebug("{Count} files discovered", files.Length);
 
             foreach (var file in files)
             {
+                Logger.LogDebug("Processing file '{File}'", file.FullName);
+
                 //allow for early exit - don't start a new file if cancellation has been requested
                 cxl.ThrowIfCancellationRequested();
                 
                 var existingBackups = GetExistingBackups(backupDirectory, file);
                 var latestBackup = existingBackups.OrderByDescending(t => t.backupNumber).FirstOrDefault();
+
+                Logger.LogDebug("Latest modification for file '{File}' is as of {Timestamp}", file.FullName, file.LastWriteTime);
+                if (latestBackup == default)
+                {
+                    Logger.LogDebug("No backups found for file '{File}'", file.FullName);
+                }
+                else
+                {
+                    Logger.LogDebug("Latest backup for file '{File}' is as of {Timestamp}", file.FullName, latestBackup.file.LastWriteTime);
+                }
 
                 //point of no return for current file
                 cxl.ThrowIfCancellationRequested();
@@ -83,6 +97,7 @@ namespace EasyBackUp
                 if (latestBackup.file == null || file.LastWriteTimeUtc - latestBackup.file.LastWriteTimeUtc >= definition.Interval)
                 {
                     Archive(file, backupDirectory, latestBackup.backupNumber + 1);
+                    existingBackups = GetExistingBackups(backupDirectory, file);
                 }
 
                 Prune(existingBackups, definition.MaxBackups);
@@ -110,22 +125,25 @@ namespace EasyBackUp
             return existingBackups;
         }
 
-        private static void Archive(FileInfo file, DirectoryInfo backupDirectory, int nextNumber)
+        private void Archive(FileInfo file, DirectoryInfo backupDirectory, int nextNumber)
         {
             var newBackupName = GetNextBackupName(file, nextNumber);
 
             using var stream = new FileStream(Path.Combine(backupDirectory.FullName, newBackupName), FileMode.Create);
             using var archive = new ZipArchive(stream, ZipArchiveMode.Create);
             archive.CreateEntryFromFile(file.FullName, file.Name, CompressionLevel.Fastest);
+
+            Logger.LogInformation("Created backup '{BackupName}' for file '{File}'", newBackupName, file.FullName);
         }
 
-        private static void Prune(ICollection<(int backupNumber, FileInfo file)> existingBackups, int maxBackups)
+        private void Prune(ICollection<(int backupNumber, FileInfo file)> existingBackups, int maxBackups)
         {
             if (existingBackups.Count + 1 > maxBackups)
             {
                 foreach (var item in existingBackups.OrderByDescending(kvp => kvp.backupNumber).Skip(maxBackups - 1))
                 {
                     item.file.Delete();
+                    Logger.LogInformation("Deleted old backup '{BackupName}'", item.file.FullName);
                 }
             }
         }
