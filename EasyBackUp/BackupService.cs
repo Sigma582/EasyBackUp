@@ -109,8 +109,9 @@ namespace EasyBackUp
             var backupBaseName = GetBackupBaseName(file);
             var existingBackups = new List<(int backupNumber, FileInfo file)>();
 
-            //\d+_(\d+)_MyFile\.docx_bak\.zip
-            var regex = new Regex($"\\d+_(\\d+)_{Regex.Escape(backupBaseName)}\\.zip");
+            //^MyFile\.docx_bak_(\d+)\.zip
+            //MyFile.docx_bak_24.zip
+            var regex = new Regex($"^{Regex.Escape(backupBaseName)}_(\\d+)\\.zip");
 
             foreach (var backup in backupDirectory.GetFiles($"*{backupBaseName}*"))
             {
@@ -156,8 +157,8 @@ namespace EasyBackUp
 
         private static string GetNextBackupName(FileInfo file, int nextNumber)
         {
-            //20220215_59_MyFile.docx_bak.zip
-            return $"{DateTime.Today:yyyyMMdd}_{nextNumber}_{GetBackupBaseName(file)}.zip";
+            //MyFile.docx_bak_59.zip
+            return $"{GetBackupBaseName(file)}_{nextNumber}.zip";
         }
     }
 }
