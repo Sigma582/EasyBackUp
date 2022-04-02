@@ -3,6 +3,8 @@ using Microsoft.Extensions.Hosting;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Serilog;
+using Microsoft.Extensions.Configuration;
+using System.Collections.Generic;
 
 namespace EasyBackUp
 {
@@ -10,11 +12,6 @@ namespace EasyBackUp
     {
         public static async Task Main(string[] args)
         {
-            //var configuration = new ConfigurationBuilder()
-            //    .SetBasePath(Directory.GetCurrentDirectory())
-            //    .AddJsonFile(path: "appsettings.json", reloadOnChange: true)
-            //    .Build();
-
             var host = Host.CreateDefaultBuilder(new string[] { })
                 .UseSerilog((hostingContext, loggerConfiguration) => 
                     loggerConfiguration
@@ -30,18 +27,26 @@ namespace EasyBackUp
                     options.ServiceName = "test";
                 }
                 )
-                .ConfigureServices(serviceCollection =>
+                .ConfigureServices((context, services) =>
                 {
-                    serviceCollection.AddHostedService<BackupService>();
+                    services.Configure<List<TargetDefinition>>((targetDefinitions) =>
+                    {
+                        IConfiguration config = context.Configuration;
+                        var section = config.GetSection("TargetDefinitions");
+                        foreach (var definitionConfig in section.GetChildren())
+                        {
+                            var definition = new TargetDefinition();
+                            definitionConfig.Bind(definition);
+                            targetDefinitions.Add(definition);
+                        }
+                    });
+
+                    services.AddHostedService<BackupService>();
                 }
                 )
                 .Build();
 
             await host.RunAsync();
-        }
-
-        private static void Logging(ILoggingBuilder logging)
-        {
         }
     }
 }

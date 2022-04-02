@@ -12,26 +12,12 @@ namespace EasyBackUp
 {
     public class Worker
     {
-        //todo populate from config
-        private List<TargetDefinition> _definitions = new()
-        {
-            new TargetDefinition {
-                TargetFolder = @"D:\Users\me\Documents\My Games\XCOM - Enemy Within\XComGame\SaveData\",
-                Glob = "save5",
-                BackupFolder = @"D:\Users\me\Documents\My Games\XCOM - Enemy Within\XComGame\SaveData\Backup\",
-                Interval = TimeSpan.FromMinutes(60),
-                MaxBackups = 10 },
-            new TargetDefinition {
-                TargetFolder = @"D:\Users\me\Documents\My Games\XCOM - Enemy Within\XComGame\SaveData\",
-                Glob = "save24",
-                BackupFolder = @"D:\Users\me\Documents\My Games\XCOM - Enemy Within\XComGame\SaveData\Backup\",
-                Interval = TimeSpan.FromMinutes(60),
-                MaxBackups = 20 },
-        };
+        private List<TargetDefinition> Definitions { get; }
 
-        public Worker(ILogger logger)
+        public Worker(ILogger logger, Microsoft.Extensions.Options.IOptions<List<TargetDefinition>> options)
         {
             Logger = logger;
+            Definitions = options.Value;
         }
 
         private int CheckIntervalSeconds => 5;
@@ -40,7 +26,7 @@ namespace EasyBackUp
 
         public async Task ExecuteAsync(CancellationToken cxl)
         {
-            await Task.WhenAll(_definitions.Select(definition => Task.Run(() => ProcessUntilCancelled(definition, cxl))));
+            await Task.WhenAll(Definitions.Select(definition => Task.Run(() => ProcessUntilCancelled(definition, cxl))));
             Logger.LogInformation($"Cancelled - ExecuteAsync");
         }
 
